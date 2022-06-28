@@ -8,7 +8,7 @@ MLOPSIN 是一套簡單的 MLOps 工具。包含自動訓練模型、部署、�
 
 Python 3.8 以上，以下列指令安裝套件
 
-```
+```bash
 python -m pip install matplotlib scikit-learn numpy tensorflow tpot streamlit streamlit-aggrid streamlit-option-menu streamlit-autorefresh fastapi uvicorn mlflow dvc[all] watchdog
 ```
 
