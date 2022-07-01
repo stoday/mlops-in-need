@@ -171,7 +171,8 @@ if selected == 'Home':
             
             # 按下按鈕開始執行
             if go_btn_place.button('Start', disabled=worker is not None):     
-                worker = st.session_state.worker = tpot_worker(daemon=True)
+                # worker = st.session_state.worker = tpot_worker(daemon=True)
+                worker = st.session_state.worker = automl_tpot.tpot_worker(dataset=dataset, daemon=True)
                 worker.start()
                 st.experimental_rerun()
             
