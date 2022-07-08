@@ -97,7 +97,6 @@ if selected == 'Home':
                 # worker = st.session_state.worker = tpot_worker(daemon=True)
                 worker = st.session_state.worker = automl_tpot.tpot_worker(dataset=dataset, daemon=True)
                 worker.start()
-                st.write(worker.is_alive())
                 st.experimental_rerun()
             
             # 按下停止結束
@@ -109,7 +108,8 @@ if selected == 'Home':
             if worker is None:
                 st.markdown('No worker running.')                
                 exp_results = experiments.list_all(str(experiment_id))
-                # AgGrid(exp_results)
+                st.write(type(exp_results))
+                AgGrid(exp_results)
                 
             else:
                 placeholder = st.empty()

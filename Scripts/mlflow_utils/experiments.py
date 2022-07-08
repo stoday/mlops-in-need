@@ -32,11 +32,17 @@ def list_all(experiment_ids):
     for x in exp_list_by_id:
         # experiment_info_dict = x.to_dictionary()['info']['start_time']
         # experiment_data_dict = x.to_dictionary()['data']['metrics']
-        experiment_info_pd = pd.DataFrame(x.to_dictionary()['info'], index=[0])
-        experiment_data_pd = pd.DataFrame(x.to_dictionary()['data']['metrics'], index=[0])
-        exp_info_df = pd.concat([exp_info_df, experiment_info_pd], axis=0, ignore_index=True)
-        exp_data_df = pd.concat([exp_data_df, experiment_data_pd], axis=0, ignore_index=True)
-        exp_results = pd.concat([exp_info_df, exp_data_df], axis=1, ignore_index=True)
+        experiment_info_df = pd.DataFrame(x.to_dictionary()['info'], index=[0])
+        experiment_data_df = pd.DataFrame(x.to_dictionary()['data']['metrics'], index=[0])
+        exp_info_df = pd.concat([exp_info_df, experiment_info_df], axis=0, ignore_index=True)
+        print('exp. info')
+        print(exp_info_df)
+        exp_data_df = pd.concat([exp_data_df, experiment_data_df], axis=0, ignore_index=True)
+        print('exp. data')
+        print(exp_data_df)
+        exp_results = pd.concat([exp_info_df, exp_data_df], axis=1)
+        print('exp. results')
+        print(exp_results)
     
     return exp_results
     
