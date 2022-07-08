@@ -1,4 +1,5 @@
 
+from cmath import exp
 import streamlit as st
 from streamlit_option_menu import option_menu
 from st_aggrid import AgGrid
@@ -7,6 +8,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from tpot import TPOTRegressor
 from algorithms import automl_tpot
+from algorithms import tpot_progress
 from sklearn.model_selection import train_test_split
 import threading
 import ctypes
@@ -14,6 +16,8 @@ import time
 import re
 import os
 import logging
+import mlflow
+from mlflow_utils import experiments
 
 # 紀錄
 logging.basicConfig(filename='app.log', 
@@ -40,96 +44,6 @@ worker = st.session_state.worker
     
 if 'model_pipline' not in st.session_state:
     st.session_state.model_pipline = None
-  
-# 用物件執行 TPOT
-class tpot_worker(threading.Thread):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.counter = 0
-        self.should_stop = threading.Event()
-        self.session = None
-        
-    def run(self):
-        X_dataset = dataset.iloc[:, 0:-1]
-        y_dataset = dataset.iloc[:, -1]
-        X_train, X_test, y_train, y_test = train_test_split(X_dataset, y_dataset)
-        
-        tpot = TPOTRegressor(generations=1, 
-                             population_size=10, 
-                             verbosity=2, 
-                             random_state=42,
-                             n_jobs=-1, 
-                             log_file='./Models/log.txt')
-        
-        tpot.fit(X_train, y_train)
-        model_pipline = tpot.export()
-        self.session = model_pipline
-    
-    def get_id(self):
-        # returns id of the respective thread
-        if hasattr(self, '_thread_id'):
-            return self._thread_id
-
-        for id, thread in threading._active.items():
-            if thread is self:
-                return id
-        
-    def raise_exception(self):
-            thread_id = self.get_id()
-            res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                thread_id,
-                ctypes.py_object(SystemExit))
-            if res > 1:
-                ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
-                print('Exception raise failure')     
-    
-  
-# 讀取 TPOT 進度
-def read_tpot_progress(target_log_file):
-    progress_status = 0
-    if os.path.isfile(target_log_file):
-        try:
-            log_ctx = open(target_log_file).read()
-            log_ctx = log_ctx.replace('\n', '')
-            all_records = re.findall('(\d+)%', log_ctx)
-            
-            if len(all_records) != 0:
-                progress_status = np.max([int(x.replace('%', '')) for x in all_records if len(x) > 0]).tolist()
-            else:
-                progress_status = 0
-            
-        except Exception as err:
-            progress = 0
-        
-    return progress_status
-
-
-# 處理 TPOT 的輸出
-def process_model_code(model_pipline):
-    print(model_pipline)    # check
-    flag = 0
-    model_code = []
-    for x in model_pipline.split('\n'):
-        if 'import' in x:
-            model_code.append(x) 
-            
-        if 'exported_pipeline.fit' in x:
-            flag = 0
-        
-        if 'exported_pipeline = ' in x:
-            model_code.append(x)
-            flag = 1
-        
-        elif flag == 1:
-            model_code.append(x)
-
-    # print(model_code)
-    model_code = '\n'.join(model_code)
-    print(model_code)
-    # exec(model_code)
-    
-    return model_code
-
 
 # 側欄
 with st.sidebar:
@@ -165,15 +79,25 @@ if selected == 'Home':
         if 'dataset' in st.session_state.keys():
             dataset = st.session_state['dataset']
             
+            experiment_name = st.text_input('Name of the Experiment')
+            if experiment_name != '':
+                try:
+                    experiment_id = mlflow.create_experiment(experiment_name)
+                except Exception as err:
+                    experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
+            else:
+                experiment_id = '-1'
+            
             cols = st.columns((1, 2, 10))
-            go_btn_place = cols[0].empty()
+            train_btn_place = cols[0].empty()
             stop_btn_place = cols[1].empty()
             
             # 按下按鈕開始執行
-            if go_btn_place.button('Start', disabled=worker is not None):     
+            if train_btn_place.button('Start', disabled=worker is not None):     
                 # worker = st.session_state.worker = tpot_worker(daemon=True)
                 worker = st.session_state.worker = automl_tpot.tpot_worker(dataset=dataset, daemon=True)
                 worker.start()
+                st.write(worker.is_alive())
                 st.experimental_rerun()
             
             # 按下停止結束
@@ -183,7 +107,9 @@ if selected == 'Home':
                 st.experimental_rerun()
                 
             if worker is None:
-                st.markdown('No worker running.')
+                st.markdown('No worker running.')                
+                exp_results = experiments.list_all(str(experiment_id))
+                # AgGrid(exp_results)
                 
             else:
                 placeholder = st.empty()
@@ -192,14 +118,35 @@ if selected == 'Home':
                 # 讀取 TPOT 進度
                 while worker.is_alive():                    
                     time.sleep(1)
-                    progress_status = read_tpot_progress('./Models/log.txt')
+                    progress_status = tpot_progress.read_tpot_progress('./Models/log.txt')
                     prog_bar.progress(progress_status)
-                
+                print('worker.is_alive: ' + str(worker.is_alive()) + '\n')
                 model_code = worker.session
-                print(process_model_code(model_code))
+                print('\n*** OUTPUT MODEL CODE ***')
+                print(model_code)
+                print(tpot_progress.process_model_code(model_code))
+                print('*** END ***\n')
                 worker.should_stop.set()
                 worker.join()
                 worker = st.session_state.worker = None
+                
+                # 使用「找到較好的」參數進行最後模型訓練
+                exported_pipeline = None
+                exec(tpot_progress.process_model_code(model_code))
+
+                X = dataset.iloc[:, :-1]
+                y = dataset.iloc[:, -1]
+                    
+                with mlflow.start_run(experiment_id=experiment_id) as run:
+                    mlflow.sklearn.autolog()
+                    exported_pipeline.fit(X, y)
+                    metrics = mlflow.sklearn.eval_and_log_metrics(exported_pipeline, 
+                                                                  X, 
+                                                                  y, 
+                                                                  prefix="val_")
+                    print(metrics)
+                mlflow.end_run()
+                print('*** mlflow done ***\n')
                 
                 st.experimental_rerun()
                 
